@@ -1,34 +1,16 @@
 #include "Arduino.h"
+#include "EscapeUtils.cpp"
+#include "Assert.cpp"
+#include "SerialLogger.h"
 #include <SoftwareSerial.h>
-#define VERBOSE 1
-
-#if VERBOSE
-#define sprintln(x) Serial.println(x)
-#else
-#define sprintln(x)
-#endif
-
-void reset_ino();
-
-enum SerialMode {
-    DATA_MODE,
-    COMMAND_MODE,
-};
-
-enum TCPMode {
-    DISABLED,
-    DEFAULT_MODE,
-    TRANSPARENT_MODE,
-};
 
 class SIM800L {        
   public:
     SoftwareSerial  sim_serial;     // Emulated Serial connection using digital pins
-    SerialMode      serial_mode;    // 
-    TCPMode         tcp_mode;       // 
     unsigned int    bprate;         // 
     u8 RX, TX, RST, DTR;            // PINs used for the SIM800L
     bool            tcp_connected;     // false: no connection, true: connected
+    bool            tcp_ssl;
     const String    _ok = "OK";
 
     /**
@@ -44,24 +26,10 @@ class SIM800L {
         this->TX = TX;
         this->RST = RST;
         this->DTR = DTR;
-        this->serial_mode = COMMAND_MODE;
-        this->tcp_mode    = DISABLED;
-        this->tcp_connected  = false;
+        this->tcp_connected = false;
+        this->tcp_ssl       = false;
     }
     
-    /**
-     * bsl_scape : Back Slash Escape
-     * This function returns the escape character
-     * works for \n \r and \t
-    */
-    char b_escape(char code) {
-        if (code == 'n') return '\n';       // newline feed
-        if (code == 'z') return (char) 26;  // CTRL+Z char code from ASCII table
-        if (code == 'r') return '\r';       // carrier return
-        if (code == 't') return '\t';       // tabulation character
-        return code;
-    }
-
     /**
      * Setup function: sets up the serial communication and used pins
      * for the SIM800L to work properly.
@@ -69,7 +37,7 @@ class SIM800L {
     void setup() {
         // Setup serial connection to the module
         sim_serial.begin(bprate);
-        sim_serial.setTimeout(3000);
+        sim_serial.setTimeout(1500);
 
         // Config reset and dtr pins
         pinMode(RST, OUTPUT);
@@ -78,17 +46,6 @@ class SIM800L {
         // Pull up the pins from ground (default mode)
         digitalWrite(RST, HIGH);
         digitalWrite(DTR, HIGH);
-    }
-
-    void assert(bool val, bool rst = true) {
-        if (!val) {
-            sprintln("INVALID PROGRAM FLOW");
-            if (rst) {
-                sprintln("RESETING");
-                delay(500);
-                reset_ino();
-            }
-        }
     }
 
     /**
@@ -102,18 +59,17 @@ class SIM800L {
         digitalWrite(RST, HIGH);
         delay(7000);
         sprintln(F("Testing..."));
-        sprintln("Recebi: " + sendCommand("AT", _ok));
+        assert(sendCommand("AT", _ok));
     }
 
-    #define ok_or_rst(cmd) assert(sendCommand((cmd), _ok))
    
     void setupConfig() {
-        ok_or_rst("AT");                    // Testa o handshake
+        assert(sendCommand("AT", _ok));     // Testa o handshake
         sendCommand("AT+CSQ", _ok);         // Testa o nível do sinal da rede
         sendCommand("AT+CCID", _ok);        // Verifica as informações do cartão SIM (chip)
         sendCommand("AT+CREG?", _ok);       // Verifica se está registrado na REDE
         sendCommand("AT&D2", _ok);          // Sets the funcion of DTR pin
-        sendCommand("AT+IFC=1,1", _ok);     // Sets no flow control
+        sendCommand("AT+IFC=0,0", _ok);     // Sets no flow control
         //setupGSM();
         setupGPRS();
     }
@@ -127,32 +83,11 @@ class SIM800L {
 
     void setupGPRS() {
         // Configurando APN
-        sendCommand("AT+CSTT=\"gprs.oi.com.br\",\"guest\",\"guest\"", _ok);
+        sendCommand(F("AT+CSTT=\"gprs.oi.com.br\",\"guest\",\"guest\""), _ok);
         sendCommand("AT+CIICR", _ok);       // Habilitando o circuito do GPRS
         sendCommand("AT+CIFSR");            // Verifica o IP recebido
         sendCommand("AT+SAPBR=1,1", _ok);   // 
         sendCommand("AT+SAPBR=2,1", _ok);   //
-        if (!setTCPMode(TRANSPARENT_MODE)) setTCPMode(DEFAULT_MODE);
-    }
-
-    bool setTCPMode(TCPMode mode) {
-        if (mode == DISABLED) {
-            // TODO
-            this->tcp_mode = mode;
-            sprintln(F("[INFO] TCP mode set to disabled"));
-        }
-        if (mode == DEFAULT_MODE) {
-            this->tcp_mode = mode;
-            sprintln(F("[INFO] TCP mode set to default mode"));
-        }
-        if (mode == TRANSPARENT_MODE) {
-            if (sendCommand("AT+CIPMODE=1" , _ok)) {
-                this->tcp_mode = mode;
-                sprintln(F("[INFO] TCP mode set to transparent mode"));
-                return true;
-            }
-        }
-        return false;
     }
 
     bool TCPconnect(String host, int port) {
@@ -160,8 +95,24 @@ class SIM800L {
             this->tcp_connected = true;
             return true;
         }
-        if (!this->tcp_connected) sendCommand("AT+CIPCLOSE", _ok);
+        if (!this->tcp_connected) 
+            TCPclose();
         return false;
+    }
+
+    bool setTCP_SSL(unsigned char active) {
+        if (sendCommand("AT+CIPSSL=" + String(active))) {
+            this->tcp_connected = active;
+            return true;
+        }
+        return false;
+    }
+
+    bool TCPclose() {
+        if (!sendCommand("AT+CIPCLOSE", _ok)) 
+            return false;
+        this->tcp_connected = false;
+        return true;
     }
 
     bool TCPsend(String data) {
@@ -177,20 +128,8 @@ class SIM800L {
         return false;
     }
 
-    void enviaSMS(String telefone, String mensagem) {
-        delay(500);
-        sim_serial.print("AT+CMGS=\"" + telefone + "\"");
-        sim_serial.print((char)13); 
-        delay(500);
-        sim_serial.print(mensagem + "\n");
-        delay(1000);
-        sim_serial.print((char)26); 
-    }
-
-    String requestLocation() {
-        String resp = "FAIL";
-        sendCommand("AT+CIPGSMLOC=1,1", _ok, &resp);
-        return resp;
+    bool requestLocation(String* resp) {
+        return sendCommand("AT+CIPGSMLOC=1,1", _ok, resp);
     }
 
     void onReceive(String str) {
@@ -200,46 +139,12 @@ class SIM800L {
         }
     }
 
-    void SERIALcommand(String str) {
-        if (str.startsWith("setup")) {
-            setupConfig();
-        } else if (str.startsWith("reset")) {
-            reset();
-        }
-    }
-
     void loop() {
         while (sim_serial.available()) {
             onReceive(serialReadLine());
         }
-        if (Serial.available()) {
-            String str = Serial.readString();
-            if (str.startsWith("AT")) {
-                Serial.println("[CMD OUT] " + sendCommand(str));
-            } else if (str.startsWith(">")) {
-                sim_serial.println(str.substring(1));
-            } else if (str.startsWith("/")) {
-                SERIALcommand(str.substring(1));
-            }
-        }
-
     }
-
-    String processCommand(String cmd) {
-        String proc = "";
-        const char* cs = cmd.c_str();
-        for(unsigned char i=0; i<cmd.length(); i++) {
-            if (cs[i] == '\\') {
-                i++;
-                proc += b_escape(cs[i]);
-            } else if (cs[i] == '\n' || cs[i] == '\r') {
-                break;
-            } else proc += cs[i];
-        }
-        return proc;
-    }
-
-
+    
     bool checkCommand(String rcv, String expect) {
         u8 l1, l2, i;
         rcv.replace("\r\n", "\n");
@@ -263,33 +168,49 @@ class SIM800L {
      * and waits <timeout> seconds.
     */
     bool sendCommand(String cmd, String expect="", String* rsp = NULL, u8 timeout=15) {
-        String pc = processCommand(cmd);
-        sim_serial.setTimeout(1000);
-        sim_serial.println(pc);
-        sprintln("--> " + pc);
+        sim_serial.println(cmd);
+        sprintln("--> " + cmd);
         String rcv;
-        String ret;
         bool j = false;
         for(u8 i = 0; i<timeout*10; i++) {
             delay(100);
             if (sim_serial.available()) {
                 rcv = serialReadLine();
                 if (!j) {
-                    if (j = checkCommand(rcv, pc)) continue;
+                    if (j = checkCommand(rcv, cmd)) continue;
                     onReceive(rcv);
                 } else {
-                    sprintln("<-- " + rcv);
-                    ret += "\n" + rcv;
-                    if (!expect.length() || rcv.indexOf(expect) != -1){
-                        if (rsp) *rsp = ret;
-                        return true;
-                    }
+                    readLinesUntil(expect, rsp);
+                    return true;
                 }
             }
         }
         delay(100);
-        if(rsp) *rsp = ret;
         return false;
+    }
+
+    bool readLinesUntil(String expect, String* change, u8 timeout=15) {
+        String build = "";
+        String line;
+        bool sucess = false;
+        u32 time = millis();
+
+        while((line = serialReadLine()).length()){
+            build += line + "\n";
+            if (!expect.length() || line.indexOf(expect) != -1){
+                sucess = true;
+                break;
+            }
+        }
+
+        /* Removes the last line break */
+        if (build.length())
+            build.substring(0, build.length() - 1);
+        
+        /* Updates the String pointer */
+        if (change) *change = build;
+
+        return sucess;
     }
 
     /**
@@ -314,31 +235,5 @@ class SIM800L {
             char t = sim_serial.read();
         }
     }   
-
-    /**
-     * Sets the serial mode to command mode or data mode.
-    */
-    bool setSerialMode(SerialMode new_mode) {
-        if (this->serial_mode == new_mode) return true;
-
-        if (new_mode == COMMAND_MODE) {
-            serialFlush();
-            digitalWrite(DTR, LOW);
-            delay(1000);
-            digitalWrite(DTR, HIGH);
-
-            if (sim_serial.available() && serialReadLine().equals(_ok)) {
-                return true;
-            }
-            return false;
-        } else if (new_mode == DATA_MODE) {
-            if (this->tcp_mode == TRANSPARENT_MODE) {
-                sendCommand("ATO", _ok);
-                return true;
-            }
-        }
-
-        return false;
-    }
 
 };
