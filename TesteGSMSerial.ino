@@ -34,7 +34,7 @@ void SERIALcommand(String str) {
     } else if (str.startsWith("disconnect")) {
         if (sim.tcp_connected) sim.TCPclose();
     } else if (str.startsWith("connect")) {
-        if (sim.tcp_connected) sim.TCPconnect("srv.samxps.tk", 25565);
+        sim.TCPconnect("srv.samxps.tk", 25565);
     } else if (str.startsWith("send ")) {
         sim.TCPsend(str.substring(5));
     }
@@ -49,9 +49,9 @@ void loop() {
     if (Serial.available()) {
         String str = Serial.readString();
         if (str.startsWith("AT")) {
-            Serial.println("[CMD OUT] " + sim.sendCommand(str));
+            sim.sendCommand(str);
         } else if (str.startsWith(">")) {
-            sim.sim_serial.println(str.substring(1));
+            sim.sim_serial.println(escapeString(str.substring(1)));
         } else if (str.startsWith("/")) {
             SERIALcommand(str.substring(1));
         }

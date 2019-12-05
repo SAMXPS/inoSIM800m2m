@@ -1,10 +1,5 @@
-#include "Arduino.h"   
+#include "EscapeUtils.h"
 
-/**
- * bsl_scape : Back Slash Escape
- * This function returns the escape character
- * works for \n \r and \t
-*/
 char escapeChar(char code) {
     if (code == 'n') return '\n';       // newline feed
     if (code == 'z') return (char) 26;  // CTRL+Z char code from ASCII table

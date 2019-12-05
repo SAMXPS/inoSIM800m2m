@@ -1,6 +1,6 @@
 #include "Arduino.h"
-#include "EscapeUtils.cpp"
-#include "Assert.cpp"
+#include "EscapeUtils.h"
+#include "Assert.h"
 #include "SerialLogger.h"
 #include <SoftwareSerial.h>
 
@@ -9,7 +9,7 @@ class SIM800L {
     SoftwareSerial  sim_serial;     // Emulated Serial connection using digital pins
     unsigned int    bprate;         // 
     u8 RX, TX, RST, DTR;            // PINs used for the SIM800L
-    bool            tcp_connected;     // false: no connection, true: connected
+    bool            tcp_connected;  // false: no connection, true: connected
     bool            tcp_ssl;
     const String    _ok = "OK";
 
@@ -102,7 +102,7 @@ class SIM800L {
 
     bool setTCP_SSL(unsigned char active) {
         if (sendCommand("AT+CIPSSL=" + String(active))) {
-            this->tcp_connected = active;
+            this->tcp_ssl = active;
             return true;
         }
         return false;
@@ -170,18 +170,18 @@ class SIM800L {
     bool sendCommand(String cmd, String expect="", String* rsp = NULL, u8 timeout=15) {
         sim_serial.println(cmd);
         sprintln("--> " + cmd);
-        String rcv;
+        String rcv, a;
+
         bool j = false;
         for(u8 i = 0; i<timeout*10; i++) {
             delay(100);
             if (sim_serial.available()) {
-                rcv = serialReadLine();
                 if (!j) {
+                    rcv = serialReadLine();
                     if (j = checkCommand(rcv, cmd)) continue;
                     onReceive(rcv);
                 } else {
-                    readLinesUntil(expect, rsp);
-                    return true;
+                    return readLinesUntil(expect, rsp);
                 }
             }
         }
@@ -195,12 +195,20 @@ class SIM800L {
         bool sucess = false;
         u32 time = millis();
 
-        while((line = serialReadLine()).length()){
-            build += line + "\n";
-            if (!expect.length() || line.indexOf(expect) != -1){
-                sucess = true;
-                break;
+        // Waits up to timeout seconds before exiting
+        while(time + timeout * 1000 > millis()){
+            line = serialReadLine();
+            if (line.length()) {
+                build += line + "\n";
+
+                sprintln("<-- " + line);
+
+                if (!expect.length() || line.indexOf(expect) != -1){
+                    sucess = true;
+                    break;
+                }
             }
+            delay(100);
         }
 
         /* Removes the last line break */
@@ -222,7 +230,7 @@ class SIM800L {
             c = sim_serial.read();
             if (c == '\r') continue;
             if (c == '\n') break;
-            s+= c;
+            s += c;
         }
         return s;
     }

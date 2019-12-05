@@ -1,10 +1,6 @@
+#include "Arduino.h"
 #include "SerialLogger.h"
-
-/**
- * This function should be defined on the arduino main and it
- * should reset the board
-*/
-void reset_ino(); 
+#include "Assert.h"
 
 void assert(bool val, bool rst = true) {
     if (!val) {
