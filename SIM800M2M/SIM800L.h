@@ -1,6 +1,7 @@
 #ifndef SIM800LM2M_H
 #define SIM800LM2M_H
-
+#if 0
+#include "SoftwareSerial.h"
 /**
  * SIM800L simple M2M library.
  * This library should be used for sending TCP data to a single server,
@@ -38,6 +39,9 @@ class SIM800L {
     /* This function should be called in the main arduino loop */
     void loop();
 
-};
+    /* Serial connection to the SIM module */
+    SoftwareSerial getSerial();
 
+};
+#endif
 #endif //SIM800LM2M_H
