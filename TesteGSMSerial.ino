@@ -23,8 +23,10 @@ void setup() {
     sim.reset();
     sim.setupConfig();
     
-    sim.setTCP_SSL(true);   // Make SIM800 use SSL auth when using TCP connections
+    //sim.setTCP_SSL(true);   // Make SIM800 use SSL auth when using TCP connections
 }
+
+bool auto_connect = true;
 
 void SERIALcommand(String str) {
     if (str.startsWith("setup")) {
@@ -37,11 +39,15 @@ void SERIALcommand(String str) {
         sim.TCPconnect("srv.samxps.tk", 25565);
     } else if (str.startsWith("send ")) {
         sim.TCPsend(str.substring(5));
+    } else if (str.startsWith("auto")) {
+        auto_connect = !auto_connect;
     }
 }
 
 
 u8 ticks = 0;
+u8 tries = 0;
+
 void loop() {
     sim.loop();
     delay(1000);
@@ -54,6 +60,22 @@ void loop() {
             sim.sim_serial.println(escapeString(str.substring(1)));
         } else if (str.startsWith("/")) {
             SERIALcommand(str.substring(1));
+        }
+    }
+    if (auto_connect) {
+        if (sim.tcp_connected && sim.TCPsend(F("KEEP_ALIVE"))) {
+            delay(250);
+        } else {
+            tries++;
+            if (tries > 5) reset_ino();
+            sim.tcp_connected = false;
+            String status;
+            if (sim.TCPstatus(&status)) {
+                sprintln("TCP STATUS: " + status);
+                sprintln("Connecting...");
+                sim.TCPconnect("srv.samxps.tk", 25565);
+                delay(5000);
+            }
         }
     }
 

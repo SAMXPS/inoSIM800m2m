@@ -17,15 +17,13 @@ class SIM800L {
      * RX       -> Serial PIN for receiving data.
      * TX       -> Serial PIN for sending data.
      * RST      -> PIN used to RESET the module.
-     * DTR      -> PIN used to SLEEP mode and switching between data/command modes. 
      * bprate   -> Baud rate of the serial connection.
     */
-    SIM800L (u8 RX, u8 TX, u8 RST, u8 DTR, unsigned int bprate) : sim_serial(TX,RX) {
+    SIM800L (u8 RX, u8 TX, u8 RST, unsigned int bprate) : sim_serial(TX,RX) {
         this->bprate = bprate;
         this->RX = RX;
         this->TX = TX;
         this->RST = RST;
-        this->DTR = DTR;
         this->tcp_connected = false;
         this->tcp_ssl       = false;
     }
@@ -75,7 +73,7 @@ class SIM800L {
     }
 
     void setupGSM() {
-        sendCommand("AT+CMGF=1", _ok);         //
+        sendCommand("AT+CMGF=0", _ok);         // Set PDU Mode on receiving SMS
         sendCommand("AT+CNMI=2,2,0,0,0", _ok); //
         sendCommand("ATX4", _ok);              //
         sendCommand("AT+COLP=1", _ok);         //
@@ -84,10 +82,16 @@ class SIM800L {
     void setupGPRS() {
         // Configurando APN
         sendCommand(F("AT+CSTT=\"gprs.oi.com.br\",\"guest\",\"guest\""), _ok);
-        sendCommand("AT+CIICR", _ok);       // Habilitando o circuito do GPRS
-        sendCommand("AT+CIFSR");            // Verifica o IP recebido
-        sendCommand("AT+SAPBR=1,1", _ok);   // 
-        sendCommand("AT+SAPBR=2,1", _ok);   //
+        sendCommand(F("AT+CIICR"), _ok);        // Habilitando o circuito do GPRS
+        sendCommand(F("AT+CIFSR"));             // Verifica o IP recebido
+        //sendCommand(F("AT+CIPQSEND=1"));        
+        /* Quick send mode – when the data is sent to module, it will
+        respond DATA ACCEPT:<n>,<length>, while not responding SEND OK.*/
+        //sendCommand(F("AT+CIPSRIP=1"));         // Show Remote IP Address and Port When Received Data 
+    }
+
+    bool TCPstatus(String *status) {
+        return sendCommand("AT+CIPSTATUS", "STATE:", status);
     }
 
     bool TCPconnect(String host, int port) {
@@ -119,17 +123,10 @@ class SIM800L {
         if (this->tcp_connected && sendCommand("AT+CIPSEND=" + String(data.length()), ">")) {
             delay(200);
             sim_serial.print(data.c_str());
-            while(sim_serial.available()) {
-                String s = serialReadLine();
-                onReceive(s);
-                if (s.startsWith("SEND OK")) return true;
-            }
+            sim_serial.print("\r\n");
+            return readLinesUntil("SEND OK");
         }
         return false;
-    }
-
-    bool requestLocation(String* resp) {
-        return sendCommand("AT+CIPGSMLOC=1,1", _ok, resp);
     }
 
     void onReceive(String str) {
@@ -145,6 +142,11 @@ class SIM800L {
         }
     }
     
+    /**
+     * This function verifies if the incoming line matches the command that has just been sent.
+     * For some reason, every AT command line sent to the SIM800 via Serial is echoed back to
+     * the serial line
+    */
     bool checkCommand(String rcv, String expect) {
         u8 l1, l2, i;
         rcv.replace("\r\n", "\n");
@@ -152,14 +154,11 @@ class SIM800L {
         if (abs((l1=rcv.length()) - (l2=expect.length())) <= 2) {
             for (i=0;i<min(l1,l2);i++) {
                 if (rcv.charAt(i) != expect.charAt(i)){
-                    sprintln("[!] " + rcv + " != " + expect);
-                    sprintln("Diff:" + String((int) rcv.charAt(i)) + " and " + String((int) expect.charAt(i)));
                     return false;
                 }
             }
             return true;
         }
-        sprintln("[!] " + rcv + " !+ " + expect);
         return false;
     }
 
@@ -189,7 +188,7 @@ class SIM800L {
         return false;
     }
 
-    bool readLinesUntil(String expect, String* change, u8 timeout=15) {
+    bool readLinesUntil(String expect, String* change = NULL, u8 timeout=15) {
         String build = "";
         String line;
         bool sucess = false;
