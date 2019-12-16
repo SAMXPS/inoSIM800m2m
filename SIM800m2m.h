@@ -8,7 +8,7 @@
  * This library should be used for sending TCP data to a single server,
  * based on a M2M (Machine To Machine) system
 */
-class SIM800L {
+class SIM800m2m {
     public:
     /**
      * Class constructor for the library has the following params
@@ -17,7 +17,7 @@ class SIM800L {
      * RST      -> PIN used to RESET the module.
      * bprate   -> Baud rate of the serial connection.
     */
-    SIM800L (u8 RX, u8 TX, u8 RST, unsigned int bprate);
+    SIM800m2m (u8 RX, u8 TX, u8 RST, unsigned int bprate);
 
     /* Updates information about the APN that will be used to connect to the GPRS network */
     bool set_apn_config(String host, String user, String password);
@@ -33,6 +33,9 @@ class SIM800L {
 
     /* Function to set the TCP server to connect to */
     bool tcp_sethost(String host, unsigned int port);
+
+    /* Should the module use SSL when TCP connecting? */
+    bool tcp_set_ssl(bool active);
 
     /* Function to send data to the TCP server */
     bool tcp_send(String data);

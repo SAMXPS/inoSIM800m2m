@@ -1,14 +1,14 @@
 /**
- * This file is a tester/example for the SIM800L simple M2M library
+ * This file is a tester/example for the SIM800 simple M2M library
 */
 
-#include "SIM800L.cpp"
+#include "SIM800m2m.cpp"
 #define S_RX 2
 #define S_TX 3
 #define SRST 4
 #define SBAU 4800
 
-SIM800L sim = SIM800L(S_RX, S_TX, SRST, SBAU);
+SIM800m2m sim = SIM800m2m(S_RX, S_TX, SRST, SBAU);
 
 void on_receive_data(byte data[]);
 void on_error();

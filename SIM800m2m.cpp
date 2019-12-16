@@ -60,8 +60,9 @@ const CommandResolver _resolvers[] = {
 };
 
 
-class SIM800L {
+class SIM800m2m {
 private:
+    // TODO: Organize private variables
     SoftwareSerial sim_serial;
     u8 RX,TX,RST;
     unsigned int bprate;
@@ -72,12 +73,13 @@ private:
     void (*tcp_error_callback)() = NULL;
     bool tcp_status = false;
     bool tcp_auto = true;
+    bool tcp_ssl  = false;
     int _last_resolver = -1;
     String last_line = "";
     String apn, user, password;
 
 public:
-    SIM800L (u8 RX, u8 TX, u8 RST, unsigned int bprate) : sim_serial(RX, TX){
+    SIM800m2m (u8 RX, u8 TX, u8 RST, unsigned int bprate) : sim_serial(RX, TX){
         this->RX = RX;
         this->TX = TX;
         this->RST = RST;
@@ -229,6 +231,14 @@ public:
         return i;
     }
 
+    bool tcp_set_ssl(bool active) {
+        if (sendCommand("AT+CIPSSL=" + String((u8) active))) {
+            this->tcp_ssl = active;
+            return true;
+        }
+        return false;
+    }
+
     void tcp_check_status() {
         if (sendCommand(F("AT+CIPSTATUS"), _OK | _ERROR | _CME_ERROR)) {
             if (processResolvers(_STATE)) {
@@ -304,11 +314,13 @@ public:
             serial_process_line(serial_read_line());
         }
 
+        // Checking the TCP connection
         if (millis() - tcp_last_check > 10000) {
             tcp_check_status();
             tcp_last_check = millis();
         }
         
+        // Auto connect
         if (!tcp_status) {
             if (tcp_auto) {
                 while (tries < 15) {
