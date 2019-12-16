@@ -71,9 +71,11 @@ private:
     u32 tcp_last_check = 0;
     void (*tcp_callback)(String data_rcv) = NULL;
     void (*tcp_error_callback)() = NULL;
+    void (*gprs_error_callback)() = NULL;
     bool tcp_status = false;
     bool tcp_auto = true;
     bool tcp_ssl  = false;
+    bool gprs_connected = false;
     int _last_resolver = -1;
     String last_line = "";
     String apn, user, password;
@@ -114,6 +116,10 @@ public:
         this->tcp_error_callback = callback;
     }
 
+    bool set_gprs_error_callback(void (*callback)()) {
+        this->gprs_error_callback = callback;
+    }
+
     /**
      * Setup function: sets up the serial communication and used pins
      * for the SIM800L to work properly.
@@ -148,7 +154,15 @@ public:
         delay(2000);
         digitalWrite(RST, HIGH);
         delay(7000);
+
+        /* reseting private state variables */
         tries = 0;
+        tcp_status = false;
+        tcp_ssl  = false;
+        gprs_connected = false;
+        _last_resolver = -1;
+        last_line = "";
+
         Serial.println(F("Testing..."));
         return sendCommand(F("AT"));
     }
@@ -161,19 +175,27 @@ public:
         sendCommand(F("AT+CREG?"));       // Verifica se está registrado na REDE
         sendCommand(F("AT&D2"));          // Sets the funcion of DTR pin
         sendCommand(F("AT+IFC=0,0"));     // Sets no flow control
-       
-        // Configurando APN
-        sendCommand("AT+CSTT=\"" + apn + "\",\"" + user + "\",\"" + password + "\"");
-        Serial.println("Waiit.....");
-        delay(5000);
-        sendCommand(F("AT+CIICR"));        // Habilitando o circuito do GPRS
+        config_gprs();
 
-        sendCommand(F("AT+CIFSR"));             // Verifica o IP recebido
+        return true;
+    }
+
+    bool config_gprs() {
+        /* +CSTT is used to configure the APN used in the GPRS context */
+        sendCommand("AT+CSTT=\"" + apn + "\",\"" + user + "\",\"" + password + "\"");
+        Serial.println("Wait...");
+        soft_wait(3000);
+        sendCommand(F("AT+CIICR"));        // Turn on GPRS circuit
+        sendCommand(F("AT+CIFSR"));        // Check received IP address
+        /* +CIPQSEND=1: Quick send mode – when the data is sent to module, it will
+        respond DATA ACCEPT:<n>,<length>, not responding SEND OK.*/
         sendCommand(F("AT+CIPQSEND=1"));        
-        /* Quick send mode – when the data is sent to module, it will
-        respond DATA ACCEPT:<n>,<length>, while not responding SEND OK.*/
-        //sendCommand(F("AT+CIPSRIP=1"));         // Show Remote IP Address and Port When Received Data 
+        //sendCommand(F("AT+CIPSRIP=1"));  // Show Remote IP Address and Port When Received Data 
         sendCommand(F("AT+CIPHEAD=1"));
+
+        gprs_connected = true;
+        tcp_check_status();
+        return true;
     }
 
     bool sendCommand(String command) {
@@ -201,7 +223,6 @@ public:
             while (sim_serial.available()) {
                 _last_resolver = serial_process_line(serial_read_line(), code);
                 if (_last_resolver >= 0) {
-                    //Serial.println("SOLVED: " + String(_last_resolver));
                     return _resolvers[_last_resolver].returner;
                 }
             }
@@ -240,26 +261,32 @@ public:
     }
 
     void tcp_check_status() {
-        if (sendCommand(F("AT+CIPSTATUS"), _OK | _ERROR | _CME_ERROR)) {
-            if (processResolvers(_STATE)) {
-                if (last_line.indexOf(F("CONNECT OK")) != -1) {
-                   tcp_status = true;
-                   Serial.println(F("[INFO] TCP IS CONNECTED"));
-                   return;
-                }
+        tcp_last_check = millis();
+
+        if (sendCommand(F("AT+CIPSTATUS"), _OK | _ERROR | _CME_ERROR) && processResolvers(_STATE)) {
+            if (last_line.indexOf(F("CONNECT OK")) != -1) {
+                gprs_connected = true;
+                tcp_status = true;
+                Serial.println(F("[INFO] TCP IS CONNECTED"));
+                return;
+            } else if (last_line.indexOf(F("PDP DEACT")) != -1) {
+                // No connection to the GPRS network
+                gprs_connected = false;
+                tcp_status = false;
+                Serial.println(F("[INFO] GPRS IS NOT CONNECTED"));
             }
+            return;
         }
-        Serial.println(F("[INFO] TCP IS DISCONNECTED"));
         
         tcp_status = false;
+        Serial.println(F("[INFO] TCP IS DISCONNECTED"));
     }
 
     bool tcp_connect() {
         bool r = sendCommand("AT+CIPSTART=\"TCP\",\"" + tcp_host + "\"," + String(tcp_port), 
             _CONNECT_FAIL | _CONNECT_OK | _CME_ERROR | _ALREADY_CONNECT | _ERROR
         );
-        this->tcp_status = (r || _last_resolver == _2bas(_ALREADY_CONNECT)); 
-        return r;
+        return (this->tcp_status = (r || _last_resolver == _2bas(_ALREADY_CONNECT))); 
     }
 
     bool tcp_send(String data) {
@@ -309,6 +336,16 @@ public:
 
     u8 tries = 0;
 
+    void soft_wait(u32 t) {
+        u32 start = millis();
+        while (millis() - start < t) {
+            while (sim_serial.available()) {
+                serial_process_line(serial_read_line());
+            }
+            delay(100);
+        }
+    }
+
     void loop() {
         while (sim_serial.available()) {
             serial_process_line(serial_read_line());
@@ -317,18 +354,32 @@ public:
         // Checking the TCP connection
         if (millis() - tcp_last_check > 10000) {
             tcp_check_status();
-            tcp_last_check = millis();
         }
-        
-        // Auto connect
+        Serial.println("a");
+        // Auto connect to the GPRS network
+        while (!gprs_connected) {
+            tries++;
+            config_gprs();
+            delay(100);
+            if (tries > 15) {
+                tries = 0;
+                Serial.println("Failed to connect to the gprs_connected");
+                if (gprs_error_callback) 
+                    (*gprs_error_callback)();
+                return;
+            }
+        }
+
+        // Auto connect to the TCP server
         if (!tcp_status) {
             if (tcp_auto) {
                 while (tries < 15) {
                     tries++;
                     Serial.println(F("[INFO] Trying to connect.."));
                     if (tcp_connect()) break;
-                    delay(1000L);
-                } 
+                    delay(100);
+                }
+                Serial.println(F("[INFO] yay..")); 
                 if (!tcp_status && tcp_error_callback) 
                     (*tcp_error_callback)();
             }

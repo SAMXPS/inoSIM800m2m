@@ -10,7 +10,7 @@
 
 SIM800m2m sim = SIM800m2m(S_RX, S_TX, SRST, SBAU);
 
-void on_receive_data(byte data[]);
+void on_receive_data(String data);
 void on_error();
 
 void setup() {
@@ -21,7 +21,8 @@ void setup() {
     sim.setup();                                // Initial setup for the module
     sim.tcp_sethost("srv.samxps.tk", 25565);    // Set the host to connect to
     sim.tcp_receiver(&on_receive_data);         // Set the handler function when receiving tcp data
-    sim.tcp_auto_connect_error(&on_error);      // What to do when the module can't auto-connect
+    sim.tcp_auto_connect_error(&on_error);      // What to do when the module can't auto-connect to the TCP server
+    sim.set_gprs_error_callback(&on_error);     // What to do when the module can't auto-connect to the GPRS network
     
     Serial.println("setup complete!");
 }
@@ -39,14 +40,10 @@ void loop () {
     u32 start = millis(); // function start timer
     sim.loop();
 
-    if (!sim.tcp_connected()) {
-        sim.tcp_connect();
+    if (sim.tcp_send(String("Hello server ") + String(start))) {
+        Serial.println("[INFO] Data sent!");
     } else {
-        if (sim.tcp_send(String("Hello server ") + String(start))) {
-            Serial.println("[INFO] Data sent!");
-        } else {
-            Serial.println("[WARN] can't send data to server");
-        }
+        Serial.println("[WARN] can't send data to server");
     }
 
     while(Serial.available()) {

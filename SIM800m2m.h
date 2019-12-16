@@ -1,6 +1,5 @@
 #ifndef SIM800LM2M_H
 #define SIM800LM2M_H
-#if 0
 #include "SoftwareSerial.h"
 
 /**
@@ -21,6 +20,9 @@ class SIM800m2m {
 
     /* Updates information about the APN that will be used to connect to the GPRS network */
     bool set_apn_config(String host, String user, String password);
+
+    /* Set the function that will be called when the lib cannot connect to the GPRS network */
+    bool set_gprs_error_callback(void (*callback)());
 
     /* This function should setup all pins, serial connection and initial AT commands */
     bool setup();
@@ -56,5 +58,5 @@ class SIM800m2m {
     SoftwareSerial getSerial();
 
 };
-#endif
+
 #endif //SIM800LM2M_H
