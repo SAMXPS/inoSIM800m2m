@@ -2,20 +2,63 @@
 #include <SoftwareSerial.h>
 //#include "SIM800L.h"
 
-typedef struct {
-    String  match;
+class CommandResolver {
+    public:
+    String match;
     bool returner;
-} CommandResolver;
 
-#define resolver(_match, _ret) CommandResolver{.match = _match, .returner = _ret}
-#define def_resolver(name, _match, _ret)\
-    const CommandResolver name = resolver(_match, _ret)
+    CommandResolver(String match, bool returner) {
+        this->match = match;
+        this->returner = returner;
+    };
+};
+typedef u16 r_code;
+#define R(x) (r_code)(1 << x)
 
-def_resolver(default_resolver, "OK", true);
-def_resolver(line_resolver, "\n", true);
-def_resolver(empty_resolver, "", true);
-def_resolver(cme_err, "+CME ERROR" , false);
-def_resolver(timeout_resolver, "_!RESERVED--TIMEOUT", false);
+const CommandResolver _resolvers[] = {
+    CommandResolver("OK", true), 
+    #define _OK R(0x0)
+
+    CommandResolver("\n", true),   
+    #define _NEWLINE R(0x1) 
+
+    CommandResolver("", false), 
+    #define _EMPTY R(0x2)
+    
+    CommandResolver("+CME ERROR", false),
+    #define _CME_ERROR R(0x3) 
+
+    CommandResolver("CONNECT OK", true),
+    #define _CONNECT_OK R(0x4)  
+
+    CommandResolver("ALREADY CONNECT", false),
+    #define _ALREADY_CONNECT R(0x5)  
+
+    CommandResolver("CONNECT FAIL", false),
+    #define _CONNECT_FAIL R(0x6)  
+    
+    CommandResolver("DATA ACCEPT", true),
+    #define _DATA_ACCEPT R(0x7)  
+
+    CommandResolver("SEND OK", true),
+    #define _SEND_OK R(0x8)  
+
+    CommandResolver("SEND FAIL", false),
+    #define _SEND_FAIL R(0x9)  
+
+    CommandResolver("ERROR", false),
+    #define _ERROR R(0xA)  
+
+    CommandResolver(">", true),
+    #define _DATA_BEGIN R(0xB)  
+
+    CommandResolver("STATE", true),
+    #define _STATE R(0xC)
+
+    CommandResolver("+IPD,", true),
+    #define _DATA_RECEIVED R(0xD)
+};
+
 
 class SIM800L {
 private:
@@ -24,9 +67,14 @@ private:
     unsigned int bprate;
     String       tcp_host;
     unsigned int tcp_port;
+    u32 tcp_last_check = 0;
     void (*tcp_callback)(String data_rcv) = NULL;
+    void (*tcp_error_callback)() = NULL;
     bool tcp_status = false;
-    CommandResolver last_found;
+    bool tcp_auto = true;
+    int _last_resolver = -1;
+    String last_line = "";
+    String apn, user, password;
 
 public:
     SIM800L (u8 RX, u8 TX, u8 RST, unsigned int bprate) : sim_serial(RX, TX){
@@ -40,6 +88,16 @@ public:
         return this->sim_serial;
     }
 
+    bool set_apn_config(String apn, String user, String password) {
+        this->apn = apn;
+        this->user = user;
+        this->password = password;
+    }
+
+    bool tcp_auto_connect(bool auto_connect) {
+        tcp_auto = auto_connect;
+    }
+
     bool tcp_sethost(String host, unsigned int port) {
         this->tcp_host = host;
         this->tcp_port = port;
@@ -48,6 +106,10 @@ public:
 
     bool tcp_receiver(void (*callback)(String data_rcv)) {
         this->tcp_callback = callback;
+    }
+
+    bool tcp_auto_connect_error(void (*callback)()) {
+        this->tcp_error_callback = callback;
     }
 
     /**
@@ -79,26 +141,27 @@ public:
      * wait for the module to reset and sends AT test command.
     */
     bool reset() {
-        Serial.println(F("Reseting..."));
+        Serial.println(F("Resetings..."));
         digitalWrite(RST, LOW);
         delay(2000);
         digitalWrite(RST, HIGH);
         delay(7000);
+        tries = 0;
         Serial.println(F("Testing..."));
-        return sendCommand("AT");
+        return sendCommand(F("AT"));
     }
 
    
     bool config() {
         if (!sendCommand("AT")) return false; // Testa o handshake
-        sendCommand("AT+CSQ");         // Testa o nível do sinal da rede
-        sendCommand("AT+CCID");        // Verifica as informações do cartão SIM (chip)
-        sendCommand("AT+CREG?");       // Verifica se está registrado na REDE
-        sendCommand("AT&D2");          // Sets the funcion of DTR pin
-        sendCommand("AT+IFC=0,0");     // Sets no flow control
+        sendCommand(F("AT+CSQ"));         // Testa o nível do sinal da rede
+        sendCommand(F("AT+CCID"));        // Verifica as informações do cartão SIM (chip)
+        sendCommand(F("AT+CREG?"));       // Verifica se está registrado na REDE
+        sendCommand(F("AT&D2"));          // Sets the funcion of DTR pin
+        sendCommand(F("AT+IFC=0,0"));     // Sets no flow control
        
         // Configurando APN
-        sendCommand(F("AT+CSTT=\"gprs.oi.com.br\",\"guest\",\"guest\""));
+        sendCommand("AT+CSTT=\"" + apn + "\",\"" + user + "\",\"" + password + "\"");
         Serial.println("Waiit.....");
         delay(5000);
         sendCommand(F("AT+CIICR"));        // Habilitando o circuito do GPRS
@@ -112,26 +175,32 @@ public:
     }
 
     bool sendCommand(String command) {
-        CommandResolver resolvers[] = {default_resolver, cme_err}; 
-        return sendCommand(command, resolvers, 2);
+        return sendCommand(command, _OK | _CME_ERROR | _ERROR);
     }
 
     bool tcp_connected() {
         return tcp_status;
     }
 
-    bool processResolvers(CommandResolver resolvers[], u8 len) {
+    int match(String line, r_code code) {
+        for (u8 i = 0; i < 16; i++) {
+            if ((code >> i) % 2){
+                if (line.indexOf(_resolvers[i].match) >= 0) {
+                    return i;
+                }
+            }
+        }
+        return -1; // No match
+    }
+
+    bool processResolvers(r_code code) {
         u32 start = millis();
         while (millis() - start < 5000) {
             while (sim_serial.available()) {
-                String line = serial_read_line();
-                serial_process_line(line);
-                for (u8 i = 0; i < len; i++) {
-                    Serial.println("testing resolver " + resolvers[i].match);
-                    if (line.indexOf(resolvers[i].match) >= 0) {
-                        last_found = resolvers[i];
-                        return resolvers[i].returner;
-                    }
+                _last_resolver = serial_process_line(serial_read_line(), code);
+                if (_last_resolver >= 0) {
+                    //Serial.println("SOLVED: " + String(_last_resolver));
+                    return _resolvers[_last_resolver].returner;
                 }
             }
             delay(100);
@@ -139,51 +208,79 @@ public:
         return false;
     }
 
-    bool dataCommand(String command, String data, CommandResolver resolvers[], u8 len) {
-        delay(500L);
-        sim_serial.print(command + "\r\n");
-        delay(200L);
+    bool sendData(String data, r_code resolvers) {
         sim_serial.print(data + "\r\n");
         delay(200L);
-        bool r = processResolvers(resolvers, len);
-        Serial.println("resolver: " + last_found.match);
+        bool r = processResolvers(resolvers);
         return r;
     }
 
-    bool sendCommand(String command, CommandResolver resolvers[], u8 len) {
+    bool sendCommand(String command, r_code resolvers) {
         sim_serial.print(command + "\r\n");
         delay(100L);
-        return processResolvers(resolvers, len);
+        return processResolvers(resolvers);
+    }
+
+    int _2bas(r_code x) {
+        int i = 0;
+        while (x>=1) {
+            x >> 1;
+        }
+        return i;
+    }
+
+    void tcp_check_status() {
+        if (sendCommand(F("AT+CIPSTATUS"), _OK | _ERROR | _CME_ERROR)) {
+            if (processResolvers(_STATE)) {
+                if (last_line.indexOf(F("CONNECT OK")) != -1) {
+                   tcp_status = true;
+                   Serial.println(F("[INFO] TCP IS CONNECTED"));
+                   return;
+                }
+            }
+        }
+        Serial.println(F("[INFO] TCP IS DISCONNECTED"));
+        
+        tcp_status = false;
     }
 
     bool tcp_connect() {
-        CommandResolver resolvers[] = {
-            resolver("CONNECT OK", true),
-            cme_err,
-            resolver("ALREADY CONNECT", false), //this should never happen, our code must support tcp_connected() function
-            resolver("CONNECT FAIL", false)
-        }; 
-
-        bool r = sendCommand("AT+CIPSTART=\"TCP\",\"" + tcp_host + "\"," + String(tcp_port), resolvers, sizeof(resolvers));
-        this->tcp_status = (r || last_found.match.indexOf("ALREADY") != -1); 
+        bool r = sendCommand("AT+CIPSTART=\"TCP\",\"" + tcp_host + "\"," + String(tcp_port), 
+            _CONNECT_FAIL | _CONNECT_OK | _CME_ERROR | _ALREADY_CONNECT | _ERROR
+        );
+        this->tcp_status = (r || _last_resolver == _2bas(_ALREADY_CONNECT)); 
         return r;
     }
 
     bool tcp_send(String data) {
         if (!tcp_connected()) return false;
 
-        CommandResolver resolvers[] = {
-            resolver("DATA ACCEPT", true),
-            resolver("SEND OK", true),
-            resolver("SEND FAIL", false),
-            cme_err
-        };
+        if (!sendCommand("AT+CIPSEND=" + String(data.length()), 
+            _DATA_BEGIN | _ERROR | _CME_ERROR
+        )) return false;
 
-        return dataCommand("AT+CIPSEND=" + String(data.length()), data, resolvers, sizeof(resolvers));
+        delay(100);
+
+        return sendData(data, 
+            _DATA_ACCEPT | _SEND_OK | _SEND_FAIL | _CME_ERROR | _ERROR
+        );
     }
 
-    void serial_process_line(String line) {
+    int serial_process_line(String line, r_code resolvers = 0) {
         Serial.println("<-- "  + line);
+        last_line = line;
+        if (match(line, _DATA_RECEIVED) >= 0) {
+            if (tcp_callback) {
+                int start = line.indexOf(':') + 1;
+                int data_len = String(line.substring(line.indexOf(',') + 1, start - 1)).toInt();
+                String data_received = line.substring(start, start + data_len);
+                tcp_callback(data_received);
+                if (!line.endsWith(data_received))
+                    return serial_process_line(line.substring(start + data_len + 1));
+            }
+        } else if (resolvers)
+            return match(line, resolvers);
+        return -1;
     }
 
     /**
@@ -200,9 +297,31 @@ public:
         return s;
     }
 
+    u8 tries = 0;
+
     void loop() {
         while (sim_serial.available()) {
             serial_process_line(serial_read_line());
+        }
+
+        if (millis() - tcp_last_check > 10000) {
+            tcp_check_status();
+            tcp_last_check = millis();
+        }
+        
+        if (!tcp_status) {
+            if (tcp_auto) {
+                while (tries < 15) {
+                    tries++;
+                    Serial.println(F("[INFO] Trying to connect.."));
+                    if (tcp_connect()) break;
+                    delay(1000L);
+                } 
+                if (!tcp_status && tcp_error_callback) 
+                    (*tcp_error_callback)();
+            }
+        } else {
+            tries = 0;
         }
     }
 

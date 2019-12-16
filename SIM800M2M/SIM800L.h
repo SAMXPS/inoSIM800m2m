@@ -2,6 +2,7 @@
 #define SIM800LM2M_H
 #if 0
 #include "SoftwareSerial.h"
+
 /**
  * SIM800L simple M2M library.
  * This library should be used for sending TCP data to a single server,
@@ -17,6 +18,9 @@ class SIM800L {
      * bprate   -> Baud rate of the serial connection.
     */
     SIM800L (u8 RX, u8 TX, u8 RST, unsigned int bprate);
+
+    /* Updates information about the APN that will be used to connect to the GPRS network */
+    bool set_apn_config(String host, String user, String password);
 
     /* This function should setup all pins, serial connection and initial AT commands */
     bool setup();
@@ -35,6 +39,12 @@ class SIM800L {
 
     /* Function to set the callback when receiving data*/
     bool tcp_receiver(void (*callback)(String data_rcv));
+
+    /* Function to set the callback when the module can't connect to the TCP server*/
+    bool tcp_auto_connect_error(void (*callback)());
+
+    /* Should the lib auto reconnect? */
+    bool tcp_auto_connect(bool auto_connect);
 
     /* This function should be called in the main arduino loop */
     void loop();

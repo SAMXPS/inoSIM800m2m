@@ -3,22 +3,25 @@
 */
 
 #include "SIM800L.cpp"
-#define S_RX 3
-#define S_TX 2
+#define S_RX 2
+#define S_TX 3
 #define SRST 4
 #define SBAU 4800
 
 SIM800L sim = SIM800L(S_RX, S_TX, SRST, SBAU);
 
 void on_receive_data(byte data[]);
+void on_error();
 
 void setup() {
     Serial.begin(9600);
     Serial.println("initializing...");
 
+    sim.set_apn_config("gprs.oi.com.br","guest","guest");   // APN configuration for the GPRS network
     sim.setup();                                // Initial setup for the module
     sim.tcp_sethost("srv.samxps.tk", 25565);    // Set the host to connect to
     sim.tcp_receiver(&on_receive_data);         // Set the handler function when receiving tcp data
+    sim.tcp_auto_connect_error(&on_error);      // What to do when the module can't auto-connect
     
     Serial.println("setup complete!");
 }
@@ -27,6 +30,10 @@ void on_receive_data(String data) {
     Serial.println("{ RCV: \"" + String(data) + "\" }");
 }
 
+void on_error() {
+    Serial.println("Cant auto-connect... So, reseting!");
+    sim.setup();
+}
 
 void loop () {
     u32 start = millis(); // function start timer
@@ -35,7 +42,7 @@ void loop () {
     if (!sim.tcp_connected()) {
         sim.tcp_connect();
     } else {
-        if (sim.tcp_send(String("Hello server"))) {
+        if (sim.tcp_send(String("Hello server ") + String(start))) {
             Serial.println("[INFO] Data sent!");
         } else {
             Serial.println("[WARN] can't send data to server");
