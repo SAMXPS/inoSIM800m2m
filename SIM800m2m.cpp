@@ -59,11 +59,10 @@
         #define _DATA_RECEIVED R(0xD)
     };
 
-
     int _2bas(r_code x) {
         int i = 0;
-        while (x>=1) {
-            x >> 1;
+        while (x>1) {
+            x = x >> 1;
         }
         return i;
     }
@@ -86,7 +85,7 @@
     }
 
     bool SIM800m2m::tcp_auto_connect(bool auto_connect) {
-        tcp_auto = auto_connect;
+        this->tcp_auto = auto_connect;
     }
 
     bool SIM800m2m::tcp_sethost(String host, unsigned int port) {
