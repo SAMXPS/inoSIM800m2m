@@ -1,8 +1,7 @@
 /**
  * This file is a tester/example for the SIM800 simple M2M library
 */
-
-#include "SIM800m2m.cpp"
+#include "SIM800m2m.h"
 #define S_RX 2
 #define S_TX 3
 #define SRST 4

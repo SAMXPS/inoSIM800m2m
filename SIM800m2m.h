@@ -1,14 +1,50 @@
-#ifndef SIM800LM2M_H
-#define SIM800LM2M_H
-#include "SoftwareSerial.h"
-
 /**
  * SIM800L simple M2M library.
  * This library should be used for sending TCP data to a single server,
  * based on a M2M (Machine To Machine) system
 */
+#ifndef SIM800LM2M_H
+#define SIM800LM2M_H
+#include "SoftwareSerial.h"
+
+typedef u16 r_code;
+
 class SIM800m2m {
-    public:
+
+private:
+    SoftwareSerial sim_serial;
+    u8 RX,TX,RST;
+    unsigned int bprate;
+    String       tcp_host;
+    unsigned int tcp_port;
+    u32 tcp_last_check = 0;
+    void (*tcp_callback)(String data_rcv) = NULL;
+    void (*tcp_error_callback)() = NULL;
+    void (*gprs_error_callback)() = NULL;
+    bool tcp_status = false;
+    bool tcp_auto = true;
+    bool tcp_ssl  = false;
+    bool gprs_connected = false;
+    int _last_resolver = -1;
+    String last_line = "";
+    String apn, user, password;
+    u8 tries = 0;
+
+    bool reset();
+    bool config();
+    bool config_gprs() ;
+    bool sendCommand(String command);
+    int match(String line, r_code code);
+    bool processResolvers();
+    bool processResolvers(r_code code);
+    bool sendData(String data, r_code resolvers);
+    bool sendCommand(String command, r_code resolvers);
+    void tcp_check_status();
+    int serial_process_line(String line, r_code resolvers = 0);
+    String serial_read_line();
+    void soft_wait(u32 t);
+
+public:
     /**
      * Class constructor for the library has the following params
      * RX       -> Serial PIN for receiving data.
