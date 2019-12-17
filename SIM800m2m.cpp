@@ -155,8 +155,11 @@
     
     bool SIM800m2m::config() {
         if (!sendCommand("AT")) return false; // Testa o handshake
+        Serial.print("IM HERE");
         sendCommand(F("AT+CSQ"));         // Testa o nível do sinal da rede
+        Serial.print("IM HERE2");
         sendCommand(F("AT+CCID"));        // Verifica as informações do cartão SIM (chip)
+        Serial.print("IM HERE3");
         sendCommand(F("AT+CREG?"));       // Verifica se está registrado na REDE
         sendCommand(F("AT&D2"));          // Sets the funcion of DTR pin
         sendCommand(F("AT+IFC=0,0"));     // Sets no flow control
@@ -299,7 +302,7 @@
         for (j = 0; !_serial_rcln(j) && j+1 < _RBFLEN; j++) {
             if (j==4) {
                 _readbuff[5] = 0;
-                if (_match(_readbuff, _DATA_RECEIVED)) {
+                if (_match(_readbuff, _DATA_RECEIVED) != -1) {
                     // _readbuff is now "+IPD,"
                     String len_ = "";
                     while(sim_serial.available()) {
@@ -327,7 +330,13 @@
             _readbuff[_RBFLEN-1] = 0;
         }
 
-        return m;
+        Serial.print("<-- ");
+        for (u8 i = 0; i < j; i++) {
+            Serial.write(_readbuff[i]);
+        }
+        Serial.println();
+
+        return _last_resolver = _match(_readbuff, resolvers);
     }
 
     // read buffer index of
@@ -337,7 +346,7 @@
 
     bool SIM800m2m::_serial_rcln(u8 buffpos) {
         char c = sim_serial.read();
-        if (c == '\r') return _serial_rcln(buffpos + 1); // skipped
+        if (c == '\r') return _serial_rcln(buffpos); // skipped
         if (c == '\n') {
             _readbuff[buffpos] = 0;
             return true;

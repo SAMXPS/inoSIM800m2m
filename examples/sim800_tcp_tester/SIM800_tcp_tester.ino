@@ -5,7 +5,7 @@
 #define S_RX 2
 #define S_TX 3
 #define SRST 4
-#define SBAU 4800
+#define SBAU 19200
 
 SIM800m2m sim = SIM800m2m(S_RX, S_TX, SRST, SBAU);
 
@@ -13,7 +13,7 @@ void on_receive_data(String data);
 void on_error();
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     Serial.println("initializing...");
 
     sim.set_apn_config("gprs.oi.com.br","guest","guest");   // APN configuration for the GPRS network
