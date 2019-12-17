@@ -18,31 +18,31 @@ private:
     String       tcp_host;
     unsigned int tcp_port;
     u32 tcp_last_check = 0;
-    void (*tcp_callback)(String data_rcv) = NULL;
+    void (*tcp_callback)(const char * data_rcv, const u8&len) = NULL;
     void (*tcp_error_callback)() = NULL;
     void (*gprs_error_callback)() = NULL;
     bool tcp_status = false;
     bool tcp_auto = true;
     bool tcp_ssl  = false;
     bool gprs_connected = false;
-    int _last_resolver = -1;
-    String last_line = "";
+    int  _last_resolver = -1;
+    #define _RBFLEN 128
+    char _readbuff[_RBFLEN];    // Buffer for reading lines
     String apn, user, password;
     u8 tries = 0;
 
     bool reset();
     bool config();
     bool config_gprs() ;
-    bool sendCommand(String command);
-    int match(String line, r_code code);
-    bool processResolvers();
-    bool processResolvers(r_code code);
-    bool sendData(String data, r_code resolvers);
-    bool sendCommand(String command, r_code resolvers);
+    bool sendCommand(const String&command);
+    bool sendData(const String&data, r_code resolvers);
+    bool sendCommand(const String&command, r_code resolvers);
     void tcp_check_status();
-    int serial_process_line(String line, r_code resolvers = 0);
-    String serial_read_line();
     void soft_wait(u32 t);
+    bool _processResolvers(r_code code);
+    int  _serial_process_line(r_code resolvers = 0);
+    bool _serial_rcln(u8 buffpos); // read char till new line to _readbuff at buffpos
+    int  _rbidxof(const String&str);
 
 public:
     /**
@@ -55,7 +55,7 @@ public:
     SIM800m2m (u8 RX, u8 TX, u8 RST, unsigned int bprate);
 
     /* Updates information about the APN that will be used to connect to the GPRS network */
-    bool set_apn_config(String host, String user, String password);
+    bool set_apn_config(const String&host, const String&user, const String&password);
 
     /* Set the function that will be called when the lib cannot connect to the GPRS network */
     bool set_gprs_error_callback(void (*callback)());
@@ -70,16 +70,16 @@ public:
     bool tcp_connect();
 
     /* Function to set the TCP server to connect to */
-    bool tcp_sethost(String host, unsigned int port);
+    bool tcp_sethost(const String&host, unsigned int port);
 
     /* Should the module use SSL when TCP connecting? */
     bool tcp_set_ssl(bool active);
 
     /* Function to send data to the TCP server */
-    bool tcp_send(String data);
+    bool tcp_send(const String&data);
 
     /* Function to set the callback when receiving data*/
-    bool tcp_receiver(void (*callback)(String data_rcv));
+    bool tcp_receiver(void (*callback)(const char * data_rcv, const u8&len));
 
     /* Function to set the callback when the module can't connect to the TCP server*/
     bool tcp_auto_connect_error(void (*callback)());
