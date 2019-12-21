@@ -25,8 +25,11 @@ void setup() {
     Serial.println("setup complete!");
 }
 
-void on_receive_data(String data) {
-    Serial.println("{ RCV: \"" + data + "\" }");
+void on_receive_data(const char * data, const u8&len) {
+    Serial.print("{ RCV: \"");
+    for (u8 x = 0; x < len; x++)
+        Serial.write(data[x]);
+    Serial.println("\" }");
 }
 
 void on_error() {

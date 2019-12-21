@@ -155,11 +155,8 @@
     
     bool SIM800m2m::config() {
         if (!sendCommand("AT")) return false; // Testa o handshake
-        Serial.print("IM HERE");
-        sendCommand(F("AT+CSQ"));         // Testa o nível do sinal da rede
-        Serial.print("IM HERE2");
+        sendCommand(F("AT+CSQ"));         // Testa o nível do sinal da received
         sendCommand(F("AT+CCID"));        // Verifica as informações do cartão SIM (chip)
-        Serial.print("IM HERE3");
         sendCommand(F("AT+CREG?"));       // Verifica se está registrado na REDE
         sendCommand(F("AT&D2"));          // Sets the funcion of DTR pin
         sendCommand(F("AT+IFC=0,0"));     // Sets no flow control
@@ -299,7 +296,7 @@
         int m = -1;
         u8 j;
         // read into the buffer up to newline char or memory limit of _RBFLEN
-        for (j = 0; !_serial_rcln(j) && j+1 < _RBFLEN; j++) {
+        for (j = 0; sim_serial.available() && !_serial_rcln(j) && j+1 < _RBFLEN; j++) {
             if (j==4) {
                 _readbuff[5] = 0;
                 if (_match(_readbuff, _DATA_RECEIVED) != -1) {
