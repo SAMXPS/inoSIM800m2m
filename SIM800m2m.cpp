@@ -57,6 +57,9 @@
 
         CommandResolver("+IPD,", true),
         #define _DATA_RECEIVED R(0xD)
+
+        CommandResolver("TimeOut", false),
+        #define _TIMEOUT R(0xE)
     };
 
     int _2bas(r_code x) {
@@ -210,6 +213,10 @@
             return true;
         }
         return false;
+    }
+
+    bool SIM800m2m::tcp_set_ssl_cert(const String&fname) {
+        return sendCommand("AT+SSLSETCERT=" + fname);
     }
 
     void SIM800m2m::tcp_check_status() {
@@ -401,4 +408,29 @@
         } else {
             tries = 0;
         }
+    }
+
+    bool SIM800m2m::fs_create(const String&fname) {
+        return sendCommand("AT+FSCREATE=" + fname);
+    }
+
+    bool SIM800m2m::fs_read(const String& fname, int start_pos, int end_pos, String* read){
+        int len = end_pos - start_pos;
+        if (end_pos == -1) len = 10239; 
+        int mode = !!start_pos;
+        bool r = sendCommand("AT+FSREAD=" + fname + "," + String(mode) + "," + String(len) + "," + String(start_pos));
+    }
+
+    bool SIM800m2m::fs_write(const String& fname, bool tail, const String&data){
+        if (!sendCommand("AT+FSWRITE=" + fname + "," + String((u8) tail) + "," + data.length() + ",10",
+            _DATA_BEGIN | _ERROR | _CME_ERROR | _TIMEOUT)
+        ) return false;
+        //Serial.print("Sending: ");
+        //Serial.println("--> " + data);
+        delay(100);
+        return sendData(data, _OK | _ERROR | _TIMEOUT);
+    }
+    
+    bool SIM800m2m::fs_del(const String& fname){
+        return sendCommand("AT+FSDEL=" + fname);
     }

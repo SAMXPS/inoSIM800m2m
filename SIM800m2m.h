@@ -75,6 +75,9 @@ public:
     /* Should the module use SSL when TCP connecting? */
     bool tcp_set_ssl(bool active);
 
+    /* Updates the certificate fale to be used in the TCP connection*/
+    bool tcp_set_ssl_cert(const String&fname);
+
     /* Function to send data to the TCP server */
     bool tcp_send(const String&data);
 
@@ -92,6 +95,19 @@ public:
 
     /* Serial connection to the SIM module */
     SoftwareSerial getSerial();
+
+    /* SIM800L File System: */
+    /* Create a file in the SIM800 internal storage */
+    bool fs_create(const String&fname);
+    
+    /* Reads data from a file */
+    bool fs_read(const String& fname, int start_pos, int end_pos, String* read);
+
+    /* Writes data to file */
+    bool fs_write(const String& fname, bool tail, const String&data);
+
+    /* Deletes a file*/
+    bool fs_del(const String& fname);
 
 };
 
