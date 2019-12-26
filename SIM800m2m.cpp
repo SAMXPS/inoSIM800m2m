@@ -70,6 +70,7 @@
         return i;
     }
 
+#if _SOFT_SERIAL
     SIM800m2m::SIM800m2m (u8 RX, u8 TX, u8 RST, unsigned int bprate) : sim_serial(RX, TX){
         this->RX = RX;
         this->TX = TX;
@@ -80,6 +81,22 @@
     SoftwareSerial SIM800m2m::getSerial() {
         return this->sim_serial;
     }
+
+    void SIM800m2m::msg_log(const String&msg) {
+        Serial.println(msg);
+    }
+
+#else
+    SIM800m2m::SIM800m2m (u8 RST, unsigned int bprate, void (*logger)(const String&msg)) {
+        this->RST = RST;
+        this->bprate = bprate;
+        this->logger = logger;
+    }
+    
+    void SIM800m2m::msg_log(const String&msg) {
+        if (logger) logger(msg);
+    }
+#endif
 
     bool SIM800m2m::set_apn_config(const String&apn, const String&user, const String&password) {
         this->apn = apn;
@@ -138,7 +155,7 @@
      * wait for the module to reset and sends AT test command.
     */
     bool SIM800m2m::reset() {
-        Serial.println(F("Reseting..."));
+        msg_log(F("Reseting..."));
         digitalWrite(RST, LOW);
         delay(2000);
         digitalWrite(RST, HIGH);
@@ -151,7 +168,7 @@
         gprs_connected = false;
         _last_resolver = -1;
 
-        Serial.println(F("Testing..."));
+        msg_log(F("Testing..."));
         return sendCommand(F("AT"));
     }
 
@@ -171,7 +188,7 @@
     bool SIM800m2m::config_gprs() {
         /* +CSTT is used to configure the APN used in the GPRS context */
         sendCommand("AT+CSTT=\"" + apn + "\",\"" + user + "\",\"" + password + "\"");
-        Serial.println("Wait...");
+        msg_log("Wait...");
         soft_wait(3000);
         sendCommand(F("AT+CIICR"));        // Turn on GPRS circuit
         sendCommand(F("AT+CIFSR"));        // Check received IP address
@@ -226,19 +243,19 @@
             if (_rbidxof(F("CONNECT OK")) != -1) {
                 gprs_connected = true;
                 tcp_status = true;
-                Serial.println(F("[INFO] TCP IS CONNECTED"));
+                msg_log(F("[INFO] TCP IS CONNECTED"));
                 return;
             } else if (_rbidxof(F("PDP DEACT")) != -1) {
                 // No connection to the GPRS network
                 gprs_connected = false;
                 tcp_status = false;
-                Serial.println(F("[INFO] GPRS IS NOT CONNECTED"));
+                msg_log(F("[INFO] GPRS IS NOT CONNECTED"));
                 return;
             }
         }
         
         tcp_status = false;
-        Serial.println(F("[INFO] TCP IS DISCONNECTED"));
+        msg_log(F("[INFO] TCP IS DISCONNECTED"));
     }
 
     bool SIM800m2m::tcp_connect() {
@@ -334,11 +351,8 @@
             _readbuff[_RBFLEN-1] = 0;
         }
 
-        Serial.print("<-- ");
-        for (u8 i = 0; i < j; i++) {
-            Serial.write(_readbuff[i]);
-        }
-        Serial.println();
+        msg_log("<--");
+        msg_log(_readbuff);
 
         return _last_resolver = _match(_readbuff, resolvers);
     }
@@ -370,6 +384,10 @@
     }
 
     void SIM800m2m::loop() {
+        #if _SOFT_SERIAL
+		sim_serial.listen();
+        #endif    
+    
         while (sim_serial.available()) {
             _serial_process_line();
         }
@@ -386,7 +404,7 @@
             delay(100);
             if (tries > 15) {
                 tries = 0;
-                Serial.println(F("Failed to connect to the GPRS network"));
+                msg_log(F("Failed to connect to the GPRS network"));
                 if (gprs_error_callback) 
                     (*gprs_error_callback)();
                 return;
@@ -398,7 +416,7 @@
             if (tcp_auto) {
                 while (tries < 15) {
                     tries++;
-                    Serial.println(F("[INFO] Trying to connect.."));
+                    msg_log(F("[INFO] Trying to connect.."));
                     if (tcp_connect()) break;
                     delay(100);
                 }
@@ -425,8 +443,6 @@
         if (!sendCommand("AT+FSWRITE=" + fname + "," + String((u8) tail) + "," + data.length() + ",10",
             _DATA_BEGIN | _ERROR | _CME_ERROR | _TIMEOUT)
         ) return false;
-        //Serial.print("Sending: ");
-        //Serial.println("--> " + data);
         delay(100);
         return sendData(data, _OK | _ERROR | _TIMEOUT);
     }

@@ -7,13 +7,26 @@
 #define SIM800LM2M_H
 #include "SoftwareSerial.h"
 
+
+#ifndef _SOFT_SERIAL
+#define _SOFT_SERIAL 1
+#endif
+
 typedef u16 r_code;
 
 class SIM800m2m {
 
 private:
+
+#if _SOFT_SERIAL
     SoftwareSerial sim_serial;
-    u8 RX,TX,RST;
+    u8 RX,TX;
+#else
+    #define sim_serial Serial
+    void (*logger)(const String&msg);
+#endif
+
+    u8 RST;
     unsigned int bprate;
     String       tcp_host;
     unsigned int tcp_port;
@@ -31,6 +44,7 @@ private:
     String apn, user, password;
     u8 tries = 0;
 
+    void msg_log(const String&msg);
     bool reset();
     bool config();
     bool config_gprs() ;
@@ -45,6 +59,8 @@ private:
     int  _rbidxof(const String&str);
 
 public:
+
+#if _SOFT_SERIAL
     /**
      * Class constructor for the library has the following params
      * RX       -> Serial PIN for receiving data.
@@ -53,6 +69,18 @@ public:
      * bprate   -> Baud rate of the serial connection.
     */
     SIM800m2m (u8 RX, u8 TX, u8 RST, unsigned int bprate);
+
+    /* Serial connection to the SIM module */
+    SoftwareSerial getSerial();
+
+#else
+    /**
+     * Class constructor for the library has the following params
+     * RST      -> PIN used to RESET the module.
+     * bprate   -> Baud rate of the serial connection.
+    */
+    SIM800m2m (u8 RST, unsigned int bprate, void (*logger)(const String&msg) = NULL);
+#endif
 
     /* Updates information about the APN that will be used to connect to the GPRS network */
     bool set_apn_config(const String&host, const String&user, const String&password);
@@ -92,9 +120,6 @@ public:
 
     /* This function should be called in the main arduino loop */
     void loop();
-
-    /* Serial connection to the SIM module */
-    SoftwareSerial getSerial();
 
     /* SIM800L File System: */
     /* Create a file in the SIM800 internal storage */
